@@ -1,0 +1,19 @@
+using(var scope = app.Services.CreateScope()) {
+    var services = scope.ServiceProvider;    
+    try 
+    {
+        var context = services.GetRequiredService<ReportDbContext>();
+        // This forces EF Core to bypass custom code and physically build 
+        // every single missing table in PostgreSQL instantly
+        context.Database.EnsureCreated(); 
+        Console.WriteLine("====== DB INITIALIZATION SUCCESSFUL ======");
+    }
+    catch (Exception ex) 
+    {
+        Console.WriteLine("====== DB INITIALIZATION FAILED ======");
+        Console.WriteLine(ex.Message);
+        if (ex.InnerException != null) {
+            Console.WriteLine("Inner Error: " + ex.InnerException.Message);
+        }
+    }
+}
