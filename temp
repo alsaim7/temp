@@ -1,45 +1,163 @@
-public override Dictionary<string, string> GetUrls() {
-            try 
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.ComponentModel;
+using DevExpress.DataAccess.ObjectBinding;
+using System.Text; // Required for GraphQL POST request formatting
+
+namespace ServerApp.Services
+{
+    // 1. The clean, 3-column data model
+    [HighlightedClass]
+    public class DiagnosisRecord
+    {
+        [HighlightedMember]
+        [JsonPropertyName("code")]
+        [DisplayName("Diagnosis Code")]
+        public string code { get; set; }
+
+        [HighlightedMember]
+        [JsonPropertyName("name")]
+        [DisplayName("Diagnosis Name")]
+        public string name { get; set; }
+
+        [HighlightedMember]
+        [JsonPropertyName("fulldescription")]
+        [DisplayName("Full Description")]
+        public string fulldescription { get; set; }
+    }
+
+    // 2. The GraphQL JSON Wrappers
+    public class HasuraGraphQLResponse
+    {
+        [JsonPropertyName("data")]
+        public HasuraDataWrapper data { get; set; }
+    }
+
+    public class HasuraDataWrapper
+    {
+        // This MUST match the table name exactly
+        [JsonPropertyName("diagnosis")]
+        public List<DiagnosisRecord> diagnosis { get; set; }
+    }
+
+    // 3. The Main Service
+    [HighlightedClass]
+    [DataObject]
+    public class HasuraDiagnosisService
+    {
+        public HasuraDiagnosisService() { }
+
+        [HighlightedMember]
+        public List<DiagnosisRecord> GetSchemaOnly()
+        {
+            return new List<DiagnosisRecord>
             {
-                // 1. Get database report names safely (filtering out nulls/empties)
-                var dbReportNames = DbContext.Reports
-                    .Select(x => x.Name)
-                    .Where(name => !string.IsNullOrEmpty(name))
-                    .ToList();
-
-                // 2. Get factory predefined report names
-                var factoryReportNames = ReportsFactory.Reports.Select(x => x.Key).ToList();
-
-                // 3. Combine both lists and filter out any duplicates entirely
-                var uniqueReportNames = dbReportNames
-                    .Union(factoryReportNames)
-                    .Distinct()
-                    .ToList();
-
-                // 4. Build the dictionary safely using the unique name as both Key and Value
-                var urls = uniqueReportNames.ToDictionary(name => name, name => name);
-
-                // 5. Safely add your hardcoded template (checking if it already exists first)
-                if (!urls.ContainsKey("NewPatientReport")) 
+                new DiagnosisRecord
                 {
-                    urls.Add("NewPatientReport", "Blank Patient Report Template");
+                    code = "Schema",
+                    name = "Schema",
+                    fulldescription = "Schema"
                 }
-                else 
-                {
-                    // If it somehow exists in the DB already, update its display text instead of crashing
-                    urls["NewPatientReport"] = "Blank Patient Report Template";
-                }
+            };
+        }
 
-                return urls;
-            }
-            catch (Exception ex)
+        [HighlightedMember]
+        [DataObjectMethod(DataObjectMethodType.Select)]
+        public IEnumerable<DiagnosisRecord> GetDiagnosisChunkByChunk()
+        {
+            int limit = 1000;
+            int offset = 0;
+            bool hasMoreData = true;
+
+            // ---> IMPORTANT: Put the real hospital GraphQL URL here <---
+            // It usually ends in /v1/graphql
+            string graphqlEndpointUrl = "http://[REAL_HOSPITAL_IP_OR_URL]/v1/graphql";
+
+            using (var client = new HttpClient())
             {
-                // Absolute safety net so the backend never crashes on startup
-                Console.WriteLine("====== ERROR IN GETURLS ======");
-                Console.WriteLine(ex.Message);
-                
-                return new Dictionary<string, string> {
-                    { "NewPatientReport", "Blank Patient Report Template" }
-                };
+                while (hasMoreData)
+                {
+                    List<DiagnosisRecord> currentChunk = new List<DiagnosisRecord>();
+
+                    try
+                    {
+                        Console.WriteLine($"[GRAPHQL FETCH] Fetching {limit} rows starting at row {offset}...");
+
+                        // 4. The GraphQL Query Payload
+                        var requestBody = new
+                        {
+                            query = @"
+                                query GetDiagnoses($limit: Int!, $offset: Int!) {
+                                  diagnosis(limit: $limit, offset: $offset) {
+                                    code
+                                    name
+                                    fulldescription
+                                  }
+                                }",
+                            variables = new { limit = limit, offset = offset }
+                        };
+
+                        // Convert to JSON and send as a POST request
+                        var jsonContent = new StringContent(
+                            JsonSerializer.Serialize(requestBody), 
+                            Encoding.UTF8, 
+                            "application/json"
+                        );
+
+                        var response = client.PostAsync(graphqlEndpointUrl, jsonContent).Result;
+
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Console.WriteLine($"Request failed. Status Code: {response.StatusCode}");
+                            break;
+                        }
+
+                        var jsonString = response.Content.ReadAsStringAsync().Result;
+
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true,
+                            NumberHandling = JsonNumberHandling.AllowReadingFromString,
+                            AllowTrailingCommas = true,
+                            ReadCommentHandling = JsonCommentHandling.Skip
+                        };
+
+                        // Parse the GraphQL response
+                        var responseData = JsonSerializer.Deserialize<HasuraGraphQLResponse>(jsonString, options);
+                        var diagnosisList = responseData?.data?.diagnosis;
+
+                        if (diagnosisList != null && diagnosisList.Count > 0)
+                        {
+                            currentChunk.AddRange(diagnosisList);
+                            offset += limit;
+
+                            Console.WriteLine($"Retrieved {diagnosisList.Count} rows.");
+
+                            if (diagnosisList.Count < limit)
+                            {
+                                hasMoreData = false;
+                            }
+                        }
+                        else
+                        {
+                            hasMoreData = false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error: {ex.Message}");
+                        hasMoreData = false;
+                    }
+
+                    foreach (var record in currentChunk)
+                    {
+                        yield return record;
+                    }
+                }
             }
         }
+    }
+}
