@@ -1,110 +1,17 @@
-// =================================================================
-    // PASTE ALL OF THIS RIGHT HERE AT THE BOTTOM OF THE FILE
-    // =================================================================
-    public class DiagnosisRecord
-    {
-        [JsonPropertyName("code")]
-        public string code { get; set; }
+// 1. Keep the URL completely clean (no ?limit=... at the end)
+var url = "http://[REAL_HOSPITAL_IP]/api/rest/diagnosis";
 
-        [JsonPropertyName("name")]
-        public string name { get; set; }
+// 2. Package the variables as true numbers in a JSON object
+var requestBody = new { 
+    limit = limit, 
+    offset = offset 
+};
 
-        [JsonPropertyName("fulldescription")]
-        public string fulldescription { get; set; }
-    }
+var jsonContent = new StringContent(
+    System.Text.Json.JsonSerializer.Serialize(requestBody), 
+    System.Text.Encoding.UTF8, 
+    "application/json"
+);
 
-    public class HasuraGraphQLResponse
-    {
-        [JsonPropertyName("data")]
-        public HasuraDataWrapper data { get; set; }
-    }
-
-    public class HasuraDataWrapper
-    {
-        [JsonPropertyName("diagnosis")]
-        public List<DiagnosisRecord> diagnosis { get; set; }
-    }
-
-    [DataObject]
-    public class HasuraPatientService
-    {
-        public HasuraPatientService() { }
-
-        [DataObjectMethod(DataObjectMethodType.Select)]
-        public IEnumerable<DiagnosisRecord> GetDiagnosisChunkByChunk()
-        {
-            int limit = 1000;
-            int offset = 0;
-            bool hasMoreData = true;
-
-            string graphqlEndpointUrl = "http://[REAL_HOSPITAL_IP_OR_URL]/v1/graphql";
-
-            using (var client = new HttpClient())
-            {
-                while (hasMoreData)
-                {
-                    List<DiagnosisRecord> currentChunk = new List<DiagnosisRecord>();
-
-                    try
-                    {
-                        var requestBody = new
-                        {
-                            query = @"
-                                query GetDiagnoses($limit: Int!, $offset: Int!) {
-                                  diagnosis(limit: $limit, offset: $offset) {
-                                    code
-                                    name
-                                    fulldescription
-                                  }
-                                }",
-                            variables = new { limit = limit, offset = offset }
-                        };
-
-                        var jsonContent = new StringContent(
-                            System.Text.Json.JsonSerializer.Serialize(requestBody), 
-                            System.Text.Encoding.UTF8, 
-                            "application/json"
-                        );
-
-                        var response = client.PostAsync(graphqlEndpointUrl, jsonContent).Result;
-
-                        if (!response.IsSuccessStatusCode) break;
-
-                        var jsonString = response.Content.ReadAsStringAsync().Result;
-                        var options = new System.Text.Json.JsonSerializerOptions
-                        {
-                            PropertyNameCaseInsensitive = true,
-                            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString,
-                            AllowTrailingCommas = true,
-                            ReadCommentHandling = System.Text.Json.JsonCommentHandling.Skip
-                        };
-
-                        var responseData = System.Text.Json.JsonSerializer.Deserialize<HasuraGraphQLResponse>(jsonString, options);
-                        var diagnosisList = responseData?.data?.diagnosis;
-
-                        if (diagnosisList != null && diagnosisList.Count > 0)
-                        {
-                            currentChunk.AddRange(diagnosisList);
-                            offset += limit;
-                            if (diagnosisList.Count < limit) hasMoreData = false;
-                        }
-                        else
-                        {
-                            hasMoreData = false;
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        hasMoreData = false;
-                    }
-
-                    foreach (var record in currentChunk)
-                    {
-                        yield return record;
-                    }
-                }
-            }
-        }
-    }
-    // =================================================================
-} // <-- This is the absolute final closing bracket for the namespace
+// 3. Send it as a POST request
+var response = client.PostAsync(url, jsonContent).Result;
