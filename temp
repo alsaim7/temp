@@ -1,27 +1,15 @@
-using System;
-using System.Collections.Generic;
-using System.Net.Http;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.ComponentModel;
-using DevExpress.DataAccess.ObjectBinding;
-using System.Text; 
-
-namespace ServerApp.Services
-{
-    // The exact 3 columns from the hospital's diagnosis table
+// =================================================================
+    // PASTE ALL OF THIS RIGHT HERE AT THE BOTTOM OF THE FILE
+    // =================================================================
     public class DiagnosisRecord
     {
         [JsonPropertyName("code")]
-        [DisplayName("Diagnosis Code")]
         public string code { get; set; }
 
         [JsonPropertyName("name")]
-        [DisplayName("Diagnosis Name")]
         public string name { get; set; }
 
         [JsonPropertyName("fulldescription")]
-        [DisplayName("Full Description")]
         public string fulldescription { get; set; }
     }
 
@@ -37,24 +25,10 @@ namespace ServerApp.Services
         public List<DiagnosisRecord> diagnosis { get; set; }
     }
 
-    // THIS IS THE TRICK: We keep the old trusted class name, but use the new data!
     [DataObject]
     public class HasuraPatientService
     {
         public HasuraPatientService() { }
-
-        public List<DiagnosisRecord> GetSchemaOnly()
-        {
-            return new List<DiagnosisRecord>
-            {
-                new DiagnosisRecord
-                {
-                    code = "Schema",
-                    name = "Schema",
-                    fulldescription = "Schema"
-                }
-            };
-        }
 
         [DataObjectMethod(DataObjectMethodType.Select)]
         public IEnumerable<DiagnosisRecord> GetDiagnosisChunkByChunk()
@@ -63,7 +37,6 @@ namespace ServerApp.Services
             int offset = 0;
             bool hasMoreData = true;
 
-            // PUT THE REAL HOSPITAL GRAPHQL URL HERE
             string graphqlEndpointUrl = "http://[REAL_HOSPITAL_IP_OR_URL]/v1/graphql";
 
             using (var client = new HttpClient())
@@ -74,8 +47,6 @@ namespace ServerApp.Services
 
                     try
                     {
-                        Console.WriteLine($"[GRAPHQL FETCH] Fetching {limit} rows...");
-
                         var requestBody = new
                         {
                             query = @"
@@ -90,37 +61,31 @@ namespace ServerApp.Services
                         };
 
                         var jsonContent = new StringContent(
-                            JsonSerializer.Serialize(requestBody), 
-                            Encoding.UTF8, 
+                            System.Text.Json.JsonSerializer.Serialize(requestBody), 
+                            System.Text.Encoding.UTF8, 
                             "application/json"
                         );
 
                         var response = client.PostAsync(graphqlEndpointUrl, jsonContent).Result;
 
-                        if (!response.IsSuccessStatusCode)
-                        {
-                            Console.WriteLine($"Request failed. Status Code: {response.StatusCode}");
-                            break;
-                        }
+                        if (!response.IsSuccessStatusCode) break;
 
                         var jsonString = response.Content.ReadAsStringAsync().Result;
-
-                        var options = new JsonSerializerOptions
+                        var options = new System.Text.Json.JsonSerializerOptions
                         {
                             PropertyNameCaseInsensitive = true,
-                            NumberHandling = JsonNumberHandling.AllowReadingFromString,
+                            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString,
                             AllowTrailingCommas = true,
-                            ReadCommentHandling = JsonCommentHandling.Skip
+                            ReadCommentHandling = System.Text.Json.JsonCommentHandling.Skip
                         };
 
-                        var responseData = JsonSerializer.Deserialize<HasuraGraphQLResponse>(jsonString, options);
+                        var responseData = System.Text.Json.JsonSerializer.Deserialize<HasuraGraphQLResponse>(jsonString, options);
                         var diagnosisList = responseData?.data?.diagnosis;
 
                         if (diagnosisList != null && diagnosisList.Count > 0)
                         {
                             currentChunk.AddRange(diagnosisList);
                             offset += limit;
-
                             if (diagnosisList.Count < limit) hasMoreData = false;
                         }
                         else
@@ -128,9 +93,8 @@ namespace ServerApp.Services
                             hasMoreData = false;
                         }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        Console.WriteLine($"Error: {ex.Message}");
                         hasMoreData = false;
                     }
 
@@ -142,4 +106,5 @@ namespace ServerApp.Services
             }
         }
     }
-}
+    // =================================================================
+} // <-- This is the absolute final closing bracket for the namespace
