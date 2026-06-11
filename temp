@@ -1,19 +1,45 @@
-using(var scope = app.Services.CreateScope()) {
-    var services = scope.ServiceProvider;    
-    try 
-    {
-        var context = services.GetRequiredService<ReportDbContext>();
-        // This forces EF Core to bypass custom code and physically build 
-        // every single missing table in PostgreSQL instantly
-        context.Database.EnsureCreated(); 
-        Console.WriteLine("====== DB INITIALIZATION SUCCESSFUL ======");
-    }
-    catch (Exception ex) 
-    {
-        Console.WriteLine("====== DB INITIALIZATION FAILED ======");
-        Console.WriteLine(ex.Message);
-        if (ex.InnerException != null) {
-            Console.WriteLine("Inner Error: " + ex.InnerException.Message);
+public override Dictionary<string, string> GetUrls() {
+            try 
+            {
+                // 1. Get database report names safely (filtering out nulls/empties)
+                var dbReportNames = DbContext.Reports
+                    .Select(x => x.Name)
+                    .Where(name => !string.IsNullOrEmpty(name))
+                    .ToList();
+
+                // 2. Get factory predefined report names
+                var factoryReportNames = ReportsFactory.Reports.Select(x => x.Key).ToList();
+
+                // 3. Combine both lists and filter out any duplicates entirely
+                var uniqueReportNames = dbReportNames
+                    .Union(factoryReportNames)
+                    .Distinct()
+                    .ToList();
+
+                // 4. Build the dictionary safely using the unique name as both Key and Value
+                var urls = uniqueReportNames.ToDictionary(name => name, name => name);
+
+                // 5. Safely add your hardcoded template (checking if it already exists first)
+                if (!urls.ContainsKey("NewPatientReport")) 
+                {
+                    urls.Add("NewPatientReport", "Blank Patient Report Template");
+                }
+                else 
+                {
+                    // If it somehow exists in the DB already, update its display text instead of crashing
+                    urls["NewPatientReport"] = "Blank Patient Report Template";
+                }
+
+                return urls;
+            }
+            catch (Exception ex)
+            {
+                // Absolute safety net so the backend never crashes on startup
+                Console.WriteLine("====== ERROR IN GETURLS ======");
+                Console.WriteLine(ex.Message);
+                
+                return new Dictionary<string, string> {
+                    { "NewPatientReport", "Blank Patient Report Template" }
+                };
+            }
         }
-    }
-}
